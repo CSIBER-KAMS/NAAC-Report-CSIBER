@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, logAudit } from '@/lib/db';
-import { jsonError, requireUser, resolveYear, yearWritable } from '@/lib/apiHelpers';
+import {
+  jsonError,
+  requireAuth,
+  requireCan,
+  resolveYear,
+  yearWritable,
+} from '@/lib/apiHelpers';
 import { getMetric } from '@/catalog';
 
 export const dynamic = 'force-dynamic';
@@ -21,8 +27,8 @@ export interface ChangeRequestRow {
 
 /** GET /api/change-requests?year=2025-26[&status=open|resolved] */
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const year = resolveYear(searchParams.get('year'));
@@ -52,8 +58,9 @@ export async function GET(request: NextRequest) {
 
 /** POST /api/change-requests?year=2025-26  body { metricId?, source?, note } */
 export async function POST(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  // Anyone signed in may raise a correction — that is the review loop.
+  const { user, error } = await requireCan(request, 'changeRequest:create');
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const year = resolveYear(searchParams.get('year'));

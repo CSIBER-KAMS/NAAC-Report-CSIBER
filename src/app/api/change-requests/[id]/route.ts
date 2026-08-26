@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, logAudit, type YearRow } from '@/lib/db';
-import { jsonError, requireUser, yearWritable } from '@/lib/apiHelpers';
+import {
+  criterionOf,
+  jsonError,
+  requireAuth,
+  requireCan,
+  yearWritable,
+} from '@/lib/apiHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,8 +15,11 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  // Authenticate before touching the database, so an anonymous caller cannot
+  // learn which change request ids exist by telling 404 apart from 401. The
+  // capability check has to come later, once the row reveals its criterion.
+  const gate = await requireAuth(request);
+  if (gate.error) return gate.error;
 
   const id = Number.parseInt(params.id, 10);
   if (!Number.isInteger(id) || id <= 0) {
@@ -18,6 +27,8 @@ export async function PATCH(
   }
 
   const db = getDb();
+  // The request's own metric_id is what decides the scope this resolution has
+  // to be authorized against.
   const cr = db
     .prepare(
       'SELECT id, year_id, metric_id, status FROM change_requests WHERE id = ?'
@@ -26,6 +37,13 @@ export async function PATCH(
     | { id: number; year_id: number; metric_id: string | null; status: string }
     | undefined;
   if (!cr) return jsonError('Change request not found', 404);
+
+  // A general request (no metric) carries no criterion, which `can()` treats as
+  // out of scope for coordinators — only the unscoped roles may close those.
+  const { user, error } = await requireCan(request, 'changeRequest:resolve', {
+    criterion: criterionOf(cr.metric_id),
+  });
+  if (error) return error;
 
   const year = db
     .prepare('SELECT id, label, status FROM years WHERE id = ?')

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getDb, logAudit, GENERATED_DIR } from '@/lib/db';
-import { jsonError, requireUser, resolveYear } from '@/lib/apiHelpers';
+import { jsonError, requireAuth, resolveYear } from '@/lib/apiHelpers';
+import { can } from '@/lib/permissions';
 import { generateAqar } from '@/lib/docgen';
 
 export const runtime = 'nodejs';
@@ -14,10 +15,14 @@ export const dynamic = 'force-dynamic';
  * Generation is allowed on final years too — it produces the FINAL document;
  * only data mutations are blocked once a year is final, so no yearWritable
  * guard here.
+ *
+ * Permission depends on WHICH document this produces: anyone who can edit the
+ * AQAR may cut a draft for review, but the FINAL document is the artefact
+ * submitted to NAAC, so it is restricted to the Admin and the Head of IQAC.
  */
 export async function POST(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { user, error } = await requireAuth(request);
+  if (error) return error;
 
   let body: unknown;
   try {
@@ -40,6 +45,16 @@ export async function POST(request: NextRequest) {
   const cleanLabel =
     typeof label === 'string' && label.trim() !== '' ? label.trim() : null;
 
+  const draft = year.status !== 'final';
+  if (!can(user, draft ? 'generate:draft' : 'generate:final')) {
+    return jsonError(
+      draft
+        ? 'You do not have permission to generate the AQAR.'
+        : 'Only the Administrator or the Head of IQAC may generate the FINAL AQAR document.',
+      403
+    );
+  }
+
   const db = getDb();
   const { maxVersion } = db
     .prepare(
@@ -48,7 +63,6 @@ export async function POST(request: NextRequest) {
     .get(year.id) as { maxVersion: number };
   const version = maxVersion + 1;
 
-  const draft = year.status !== 'final';
   const buffer = await generateAqar(year.id, { draft, version });
 
   fs.mkdirSync(GENERATED_DIR, { recursive: true });
@@ -56,12 +70,15 @@ export async function POST(request: NextRequest) {
   const filePath = path.join(GENERATED_DIR, fileName);
   fs.writeFileSync(filePath, buffer);
 
+  // Store the BARE FILENAME, not an absolute path. Absolute paths recorded on
+  // one machine resolve to nothing on another (a Windows path is meaningless
+  // on the Linux server), which previously broke every existing download.
   const result = db
     .prepare(
       `INSERT INTO generations (year_id, version, label, file_path, generated_by)
        VALUES (?, ?, ?, ?, ?)`
     )
-    .run(year.id, version, cleanLabel, filePath, user.id);
+    .run(year.id, version, cleanLabel, fileName, user.id);
   const id = Number(result.lastInsertRowid);
 
   logAudit(user.id, year.id, null, 'generate_aqar', {

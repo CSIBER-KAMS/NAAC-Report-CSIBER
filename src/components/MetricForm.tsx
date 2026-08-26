@@ -25,7 +25,23 @@ interface Props {
   initialEvidence: EvidenceFile[];
   initialDerived: number | null;
   initialIssues: ValidationIssue[];
+  /** Gates the data entry itself: write-ups, tables, headline, status, Save. */
   readOnly?: boolean;
+  /**
+   * Gates the "Log change request" card ONLY. Deliberately separate from
+   * `readOnly`: a School Representative or an unassigned Coordinator must be
+   * able to flag a problem on a metric they cannot edit — that is the review
+   * loop. Defaults to `!readOnly` so existing callers behave as before.
+   */
+  canLogChangeRequest?: boolean;
+  /** Gates the evidence file input + Upload button. */
+  canUpload?: boolean;
+  /** May delete any evidence file on this metric (admin / head / coordinator). */
+  canDeleteAnyEvidence?: boolean;
+  /** May delete evidence they uploaded themselves (school representative). */
+  canDeleteOwnEvidence?: boolean;
+  /** Needed to match uploads against the viewer for the "own uploads" rule. */
+  currentUserId?: number | null;
 }
 
 export default function MetricForm({
@@ -38,8 +54,30 @@ export default function MetricForm({
   initialDerived,
   initialIssues,
   readOnly = false,
+  canLogChangeRequest,
+  canUpload,
+  canDeleteAnyEvidence,
+  canDeleteOwnEvidence,
+  currentUserId = null,
 }: Props) {
   const hasDerive = !!metric.headline?.derive;
+
+  const mayLogChangeRequest = canLogChangeRequest ?? !readOnly;
+  const mayUpload = canUpload ?? !readOnly;
+  const deleteAny = canDeleteAnyEvidence ?? !readOnly;
+  const deleteOwn = canDeleteOwnEvidence ?? !readOnly;
+
+  // Built here rather than passed in, because a server component cannot hand
+  // a function to a client component.
+  function canDeleteFile(file: { id: number; uploadedBy: number | null }) {
+    if (deleteAny) return true;
+    return (
+      deleteOwn &&
+      currentUserId != null &&
+      file.uploadedBy != null &&
+      file.uploadedBy === currentUserId
+    );
+  }
 
   const [writeups, setWriteups] = useState<Record<string, string>>(
     initialPayload.writeups ?? {}
@@ -419,7 +457,8 @@ export default function MetricForm({
             metricId={metric.id}
             slots={metric.evidence ?? []}
             initialFiles={initialEvidence}
-            readOnly={readOnly}
+            canUpload={mayUpload}
+            canDeleteFile={canDeleteFile}
           />
         </div>
       )}
@@ -463,47 +502,51 @@ export default function MetricForm({
         )}
       </div>
 
-      {/* Change-request quick log */}
-      <div className="card">
-        <h2 className="mb-1 text-sm font-semibold text-slate-800">
-          Log change request
-        </h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Record a correction or update requested for this metric — it will
-          appear in the review queue.
-        </p>
-        <div className="grid gap-3 md:grid-cols-3">
-          <input
-            type="text"
-            className="input"
-            placeholder="Source (e.g. Prof. X, Dept. Y)"
-            value={crSource}
-            disabled={readOnly}
-            onChange={(e) => setCrSource(e.target.value)}
-          />
-          <input
-            type="text"
-            className="input md:col-span-2"
-            placeholder="What needs to change?"
-            value={crNote}
-            disabled={readOnly}
-            onChange={(e) => setCrNote(e.target.value)}
-          />
+      {/* Change-request quick log — gated on its own permission, not on
+          `readOnly`, so people who cannot edit can still report a problem. */}
+      {mayLogChangeRequest && (
+        <div className="card">
+          <h2 className="mb-1 text-sm font-semibold text-slate-800">
+            Log change request
+          </h2>
+          <p className="mb-3 text-xs text-slate-500">
+            {readOnly
+              ? 'You cannot edit this metric, but you can ask whoever can to change it — your request appears in the review queue.'
+              : 'Record a correction or update requested for this metric — it will appear in the review queue.'}
+          </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            <input
+              type="text"
+              className="input"
+              placeholder="Source (e.g. Prof. X, Dept. Y)"
+              value={crSource}
+              disabled={crBusy}
+              onChange={(e) => setCrSource(e.target.value)}
+            />
+            <input
+              type="text"
+              className="input md:col-span-2"
+              placeholder="What needs to change?"
+              value={crNote}
+              disabled={crBusy}
+              onChange={(e) => setCrNote(e.target.value)}
+            />
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              className="btn-secondary px-3 py-1.5 text-xs"
+              disabled={crBusy}
+              onClick={logChangeRequest}
+            >
+              {crBusy ? 'Logging…' : 'Log change request'}
+            </button>
+            {crMessage && (
+              <span className="text-xs text-slate-600">{crMessage}</span>
+            )}
+          </div>
         </div>
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="button"
-            className="btn-secondary px-3 py-1.5 text-xs"
-            disabled={readOnly || crBusy}
-            onClick={logChangeRequest}
-          >
-            {crBusy ? 'Logging…' : 'Log change request'}
-          </button>
-          {crMessage && (
-            <span className="text-xs text-slate-600">{crMessage}</span>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

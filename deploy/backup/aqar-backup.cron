@@ -1,0 +1,21 @@
+# CSIBER AQAR — nightly backup.
+#
+#   sudo cp deploy/backup/aqar-backup.cron /etc/cron.d/aqar-backup
+#   sudo chmod 644 /etc/cron.d/aqar-backup
+#
+# Backups are only real once a restore has been tested. See the restore drill
+# in docs/RUNBOOK.md — run it at least once before relying on this.
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=iqac@siberindia.edu.in
+
+# ---- Docker deployment: 02:15 every night ----
+15 2 * * * root cd /opt/aqar && /usr/bin/docker compose exec -T app npm run backup -- /data/backups >> /var/log/aqar/backup.log 2>&1
+
+# ---- systemd / PM2 deployment: use this line instead ----
+# 15 2 * * * aqar cd /opt/aqar && /usr/bin/npm run backup -- /srv/aqar-backups >> /var/log/aqar/backup.log 2>&1
+
+# Copy backups off this machine — a backup on the same disk does not survive
+# the failure it exists for. Adjust the destination, then uncomment.
+# 45 2 * * * root /usr/bin/rsync -a --delete /srv/aqar-backups/ backup-host:/srv/aqar-backups/ >> /var/log/aqar/backup.log 2>&1

@@ -1,0 +1,18 @@
+node_modules
+.next
+.git
+.gitignore
+
+# Never bake institutional data into an image.
+data
+backups
+
+# Developer fixture that inserts fabricated sample data — must not ship.
+scripts/dev
+
+.env
+.env*.local
+.claude
+docs
+*.md
+!README.md

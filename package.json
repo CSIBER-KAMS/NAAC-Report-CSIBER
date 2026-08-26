@@ -8,6 +8,9 @@
     "build": "next build",
     "start": "next start",
     "seed": "tsx scripts/seed.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "backup": "tsx scripts/backup.ts",
+    "reset:data": "tsx scripts/reset-data.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

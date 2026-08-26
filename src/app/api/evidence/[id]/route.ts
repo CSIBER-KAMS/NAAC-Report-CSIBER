@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import { getDb, logAudit, UPLOADS_DIR, type YearRow } from '@/lib/db';
-import { jsonError, requireUser, yearWritable } from '@/lib/apiHelpers';
+import {
+  criterionOf,
+  jsonError,
+  requireAuth,
+  yearWritable,
+} from '@/lib/apiHelpers';
+import { can } from '@/lib/permissions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,11 +28,11 @@ interface EvidenceDbRow {
 
 /** DELETE /api/evidence/[id] — remove the DB row and unlink the stored file. */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { user, error } = await requireAuth(request);
+  if (error) return error;
 
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) {
@@ -38,6 +44,21 @@ export async function DELETE(
     .prepare('SELECT * FROM evidence WHERE id = ?')
     .get(id) as EvidenceDbRow | undefined;
   if (!row) return jsonError('Evidence not found', 404);
+
+  // Authorized once the target is known, because the decision depends on both
+  // the criterion and who uploaded it: a School Representative may remove
+  // their own file but never somebody else's.
+  if (
+    !can(user, 'evidence:delete', {
+      criterion: criterionOf(row.metric_id),
+      ownerId: row.uploaded_by,
+    })
+  ) {
+    return jsonError(
+      'You do not have permission to delete this file.',
+      403
+    );
+  }
 
   const year = db
     .prepare('SELECT id, label, status FROM years WHERE id = ?')

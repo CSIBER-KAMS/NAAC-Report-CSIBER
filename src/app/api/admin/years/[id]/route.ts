@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jsonError, requireUser } from '@/lib/apiHelpers';
-import type { SessionUser } from '@/lib/auth';
+import { jsonError, requireCan } from '@/lib/apiHelpers';
 import { getDb, logAudit } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -10,17 +9,6 @@ interface YearRow {
   label: string;
   status: 'draft' | 'final';
   created_at: string;
-}
-
-async function requireAdmin(): Promise<
-  { user: SessionUser; error: null } | { user: null; error: NextResponse }
-> {
-  const user = await requireUser();
-  if (!user) return { user: null, error: jsonError('Not authenticated', 401) };
-  if (user.role !== 'admin') {
-    return { user: null, error: jsonError('Admin access required', 403) };
-  }
-  return { user, error: null };
 }
 
 function getYearById(id: number): YearRow | undefined {
@@ -38,7 +26,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const { user, error } = await requireAdmin();
+  // Finalising locks the year against every further write, so it is gated on
+  // the stronger capability rather than plain year management.
+  const { user, error } = await requireCan(request, 'year:finalize');
   if (error) return error;
 
   const id = parseId(params.id);

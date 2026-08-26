@@ -1,18 +1,31 @@
 /**
- * Realistic sample data for end-to-end testing and the demo.
+ * DEVELOPER FIXTURE — NOT FOR PRODUCTION.
  *
- * Fills year 2025-26 with plausible CSIBER data: Part A identity fields,
- * Extended Profile rows/headlines, every Criterion 1 metric, and two
- * change requests. Idempotent — existing sample rows for the year are
- * deleted before re-insertion.
+ * Fills year 2025-26 with invented CSIBER-flavoured data so the portals,
+ * validation, document generation and the Excel export can be exercised
+ * end to end. Every value is fabricated demonstration text, not institutional
+ * data, and none of it should ever reach a real deployment.
  *
- *   npx tsx scripts/sample-data.ts
+ * Guarded twice over: it refuses to run in production, it requires an explicit
+ * opt-in flag, and scripts/dev is excluded from the Docker image entirely.
  *
- * NOTE: all values below are GENERIC SAMPLE TEXT for demonstration only,
- * not audited institutional data.
+ *   AQAR_ALLOW_SAMPLE_DATA=1 npx tsx scripts/dev/sample-data.ts
+ *
+ * Use scripts/reset-data.ts to return the database to an empty state.
  */
-import { getDb } from '../src/lib/db';
-import type { MetricPayload, MetricStatus } from '../src/catalog/types';
+if (
+  process.env.NODE_ENV === 'production' ||
+  process.env.AQAR_ALLOW_SAMPLE_DATA !== '1'
+) {
+  console.error(
+    'Refusing to run: this is a developer fixture that inserts fabricated data.\n' +
+      'Set AQAR_ALLOW_SAMPLE_DATA=1 in a non-production environment to proceed.'
+  );
+  process.exit(1);
+}
+
+import { getDb } from '../../src/lib/db';
+import type { MetricPayload, MetricStatus } from '../../src/catalog/types';
 
 const db = getDb();
 const YEAR_LABEL = '2025-26';

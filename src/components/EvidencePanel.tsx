@@ -10,7 +10,16 @@ export interface EvidenceFile {
   orig_name: string;
   size: number;
   mime?: string | null;
+  /** Who uploaded it — drives the "own uploads only" delete rule. */
+  uploaded_by?: number | null;
   uploaded_at: string;
+}
+
+/** Normalise an uploader id from the API to `number | null` — never NaN. */
+function toOwnerId(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function formatSize(bytes: number): string {
@@ -23,19 +32,26 @@ function formatSize(bytes: number): string {
  * One card per evidence slot: uploaded files with download/delete,
  * a file input + upload button, and a "Required" badge when the slot
  * is required and empty.
+ *
+ * Upload and delete are gated separately, and delete is decided PER FILE —
+ * a School Representative may remove what they uploaded themselves while
+ * leaving everyone else's files alone. Downloads and the required-slot badges
+ * stay visible to every signed-in viewer.
  */
 export default function EvidencePanel({
   yearLabel,
   metricId,
   slots,
   initialFiles,
-  readOnly = false,
+  canUpload,
+  canDeleteFile,
 }: {
   yearLabel: string;
   metricId: string;
   slots: EvidenceSlot[];
   initialFiles: EvidenceFile[];
-  readOnly?: boolean;
+  canUpload: boolean;
+  canDeleteFile: (file: { id: number; uploadedBy: number | null }) => boolean;
 }) {
   const [files, setFiles] = useState<EvidenceFile[]>(initialFiles);
   const [pending, setPending] = useState<Record<string, File | null>>({});
@@ -64,6 +80,7 @@ export default function EvidencePanel({
           orig_name: String(r.orig_name ?? r.origName ?? ''),
           size: Number(r.size ?? 0),
           mime: (r.mime ?? null) as string | null,
+          uploaded_by: toOwnerId(r.uploaded_by ?? r.uploadedBy),
           uploaded_at: String(r.uploaded_at ?? r.uploadedAt ?? ''),
         };
       })
@@ -137,37 +154,43 @@ export default function EvidencePanel({
             </div>
             {slotFiles.length > 0 && (
               <ul className="mb-2 space-y-1">
-                {slotFiles.map((f) => (
-                  <li
-                    key={f.id}
-                    className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
-                  >
-                    <a
-                      href={`/api/evidence/${f.id}/download`}
-                      className="truncate text-brand-700 hover:underline"
+                {slotFiles.map((f) => {
+                  const deletable = canDeleteFile({
+                    id: f.id,
+                    uploadedBy: f.uploaded_by ?? null,
+                  });
+                  return (
+                    <li
+                      key={f.id}
+                      className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
                     >
-                      {f.orig_name}
-                    </a>
-                    <span className="flex shrink-0 items-center gap-2">
-                      <span className="text-xs text-slate-400">
-                        {formatSize(f.size)}
+                      <a
+                        href={`/api/evidence/${f.id}/download`}
+                        className="truncate text-brand-700 hover:underline"
+                      >
+                        {f.orig_name}
+                      </a>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-xs text-slate-400">
+                          {formatSize(f.size)}
+                        </span>
+                        {deletable && (
+                          <button
+                            type="button"
+                            className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                            disabled={busy === `del-${f.id}`}
+                            onClick={() => remove(f.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </span>
-                      {!readOnly && (
-                        <button
-                          type="button"
-                          className="rounded px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                          disabled={busy === `del-${f.id}`}
-                          onClick={() => remove(f.id)}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             )}
-            {!readOnly && (
+            {canUpload && (
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   key={inputVersion[slot.key] ?? 0}

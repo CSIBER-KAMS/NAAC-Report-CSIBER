@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import path from 'path';
-import { getDb } from '@/lib/db';
-import { jsonError, requireUser, resolveYear } from '@/lib/apiHelpers';
+import { fileNameOf, getDb } from '@/lib/db';
+import { jsonError, requireAuth, resolveYear } from '@/lib/apiHelpers';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +17,8 @@ export interface GenerationRow {
 
 /** GET /api/generations?year=2025-26 — newest first. */
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const year = resolveYear(searchParams.get('year'));
@@ -36,9 +35,11 @@ export async function GET(request: NextRequest) {
     )
     .all(year.id) as (Omit<GenerationRow, 'file_name'> & { file_path: string })[];
 
+  // Legacy rows hold an absolute Windows path; path.basename would not split it
+  // on a Linux host, so use the separator-agnostic helper.
   const generations: GenerationRow[] = rows.map(({ file_path, ...rest }) => ({
     ...rest,
-    file_name: path.basename(file_path),
+    file_name: fileNameOf(file_path),
   }));
 
   return NextResponse.json({ generations });

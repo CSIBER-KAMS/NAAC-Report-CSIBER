@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb, logAudit } from '@/lib/db';
 import {
   jsonError,
-  requireUser,
+  requireAuth,
+  requireCan,
   resolveYear,
   yearWritable,
 } from '@/lib/apiHelpers';
@@ -17,8 +18,8 @@ function loadPayload(yearId: number): Record<string, unknown> {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const params = new URL(request.url).searchParams;
   const year = resolveYear(params.get('year'));
@@ -28,8 +29,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  // Part A is institution-level data, so it is not criterion-scoped.
+  const { user, error } = await requireCan(request, 'partA:edit');
+  if (error) return error;
 
   const params = new URL(request.url).searchParams;
   const year = resolveYear(params.get('year'));

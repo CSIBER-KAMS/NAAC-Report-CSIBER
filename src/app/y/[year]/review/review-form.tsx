@@ -120,12 +120,30 @@ export function NewChangeRequestForm({
   );
 }
 
-/** Resolve button for one open change request, with an optional note prompt. */
+/**
+ * Resolve button for one open change request, with an optional note prompt.
+ *
+ * Closing a request is a separate right from raising one — a School
+ * Representative may report a problem but not declare it fixed, and a
+ * Coordinator may only close requests on their own criteria. When the viewer
+ * lacks that right we show the reason in place of the button rather than a
+ * dead grey control.
+ */
 export function ResolveButton({
   id,
+  canResolve = true,
+  deniedLabel = 'Not yours to close',
+  deniedReason,
   disabled,
 }: {
   id: number;
+  /** False when this row is outside the viewer's scope. */
+  canResolve?: boolean;
+  /** Short text shown in place of the button when `canResolve` is false. */
+  deniedLabel?: string;
+  /** Tooltip explaining why the button is not offered. */
+  deniedReason?: string;
+  /** Temporarily unavailable for a reason other than permission (e.g. busy). */
   disabled?: boolean;
 }) {
   const router = useRouter();
@@ -159,6 +177,14 @@ export function ResolveButton({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!canResolve) {
+    return (
+      <span className="text-xs text-slate-400" title={deniedReason}>
+        {deniedLabel}
+      </span>
+    );
   }
 
   return (

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jsonError, requireUser, resolveYear } from '@/lib/apiHelpers';
+import { jsonError, requireCan, resolveYear } from '@/lib/apiHelpers';
 import { buildDataTemplates } from '@/lib/xlsxExport';
 
 export const runtime = 'nodejs';
@@ -10,8 +10,8 @@ const XLSX_MIME =
 
 /** GET /api/export-templates?year=2025-26 — stream the NAAC data-template workbook. */
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireCan(request, 'export:xlsx');
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const year = resolveYear(searchParams.get('year'));

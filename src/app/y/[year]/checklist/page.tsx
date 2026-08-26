@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { allCriteria } from '@/catalog';
 import type { Metric, MetricKind, MetricPayload } from '@/catalog/types';
 import {
@@ -13,6 +13,8 @@ import {
   effectiveHeadline,
   validateMetric,
 } from '@/lib/derive';
+import { getSessionUser } from '@/lib/session';
+import { can } from '@/lib/permissions';
 import { Badge, PageHeader, StatusBadge } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -53,13 +55,20 @@ function finalValue(
   return parts.length > 0 ? parts.join('; ') : '—';
 }
 
-export default function ChecklistPage({
+export default async function ChecklistPage({
   params,
 }: {
   params: { year: string };
 }) {
+  const user = await getSessionUser();
+  if (!user) redirect('/login');
+
   const year = getYearByLabel(params.year);
   if (!year) notFound();
+
+  // The checklist itself is read-only for everyone — it is the "what will go
+  // to the portal" view. Only the bulk .xlsx export is gated.
+  const canExport = can(user, 'export:xlsx');
 
   const evidenceByMetric = evidenceCountsForYear(year.id);
 
@@ -120,12 +129,14 @@ export default function ChecklistPage({
                 Download AQAR
               </span>
             )}
-            <a
-              href={`/api/export-templates?year=${encodeURIComponent(params.year)}`}
-              className="btn-secondary"
-            >
-              Export data templates (.xlsx)
-            </a>
+            {canExport && (
+              <a
+                href={`/api/export-templates?year=${encodeURIComponent(params.year)}`}
+                className="btn-secondary"
+              >
+                Export data templates (.xlsx)
+              </a>
+            )}
           </>
         }
       />

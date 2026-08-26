@@ -1,9 +1,12 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getCriterion } from '@/catalog';
 import type { MetricKind } from '@/catalog/types';
 import { evidenceCountsForYear, getDb, getYearByLabel } from '@/lib/db';
 import { criterionProgress, type MetricProgress } from '@/lib/derive';
+import { getSessionUser } from '@/lib/session';
+import { can } from '@/lib/permissions';
+import { criterionLabel } from '@/lib/roles';
 import { Badge, PageHeader, StatusBadge } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -25,11 +28,14 @@ function truncate(text: string, max = 110): string {
   return text.slice(0, max - 1).trimEnd() + '…';
 }
 
-export default function CriterionPage({
+export default async function CriterionPage({
   params,
 }: {
   params: { year: string; n: string };
 }) {
+  const user = await getSessionUser();
+  if (!user) redirect('/login');
+
   const year = getYearByLabel(params.year);
   if (!year) notFound();
 
@@ -37,6 +43,10 @@ export default function CriterionPage({
   const n = Number.parseInt(params.n, 10);
   const criterion = getCriterion(n);
   if (!criterion) notFound();
+
+  // Viewing is open to every signed-in user; editing is not. Say so up front
+  // rather than letting someone fill in a form they cannot save.
+  const canEdit = can(user, 'metric:edit', { criterion: n });
 
   const evidenceByMetric = evidenceCountsForYear(year.id);
   const progress = criterionProgress(year.id, criterion, evidenceByMetric);
@@ -66,6 +76,15 @@ export default function CriterionPage({
           progress.filter((p) => p.status === 'complete').length
         } complete`}
       />
+
+      {!canEdit && (
+        <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong>Read-only.</strong> {criterionLabel(n)} is not assigned to
+          you, so you can open and read these metrics but not change them. If
+          something here is wrong, open the metric and log a change request —
+          the criterion in-charge will pick it up in the review queue.
+        </div>
+      )}
 
       <div className="space-y-6">
         {criterion.keyIndicators.map((ki) => (

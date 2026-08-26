@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getMetricPayload, getTableRows, logAudit } from '@/lib/db';
 import {
+  criterionOf,
   jsonError,
-  requireUser,
+  requireAuth,
+  requireCan,
   resolveYear,
   yearWritable,
 } from '@/lib/apiHelpers';
@@ -57,8 +59,8 @@ function metricState(yearId: number, metric: Metric) {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const params = new URL(request.url).searchParams;
   const year = resolveYear(params.get('year'));
@@ -72,17 +74,22 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
-
   const params = new URL(request.url).searchParams;
+  const id = params.get('id') ?? '';
+
+  // Authorized against the criterion this metric belongs to, so a coordinator
+  // or representative can only edit within their own scope.
+  const { user, error } = await requireCan(request, 'metric:edit', {
+    criterion: criterionOf(id),
+  });
+  if (error) return error;
+
   const year = resolveYear(params.get('year'));
   if (!year) return jsonError('Unknown year', 404);
   if (!yearWritable(year)) {
     return jsonError('This year has been marked final; writes are locked.', 409);
   }
 
-  const id = params.get('id') ?? '';
   const lookup = getMetric(id);
   if (!lookup) return jsonError('Unknown metric', 404);
   const metric = lookup.metric;

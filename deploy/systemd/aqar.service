@@ -1,0 +1,58 @@
+# CSIBER AQAR — systemd unit (the no-Docker deployment path).
+#
+#   sudo cp deploy/systemd/aqar.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aqar
+#
+# Expects the application at /opt/aqar, built with `npm run build`, owned by
+# an unprivileged `aqar` user, and secrets in /etc/aqar/aqar.env (mode 600).
+
+[Unit]
+Description=CSIBER AQAR System
+Documentation=file:/opt/aqar/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aqar
+Group=aqar
+
+# CRITICAL: the application resolves its data directory relative to the
+# working directory unless AQAR_DATA_DIR is set. Both are pinned here — get
+# this wrong and the app silently creates an empty database somewhere else and
+# looks like it has lost everything.
+WorkingDirectory=/opt/aqar
+Environment=AQAR_DATA_DIR=/opt/aqar/data
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+EnvironmentFile=/etc/aqar/aqar.env
+
+# The standalone build output. Produced by `npm run build`.
+ExecStart=/usr/bin/node /opt/aqar/.next/standalone/server.js
+
+Restart=always
+RestartSec=5
+
+# Only one instance may run: SQLite in WAL mode tolerates exactly one writer.
+# Do not template this unit or run a second copy against the same data dir.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aqar
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# The data directory is the only place the service may write.
+ReadWritePaths=/opt/aqar/data
+
+[Install]
+WantedBy=multi-user.target

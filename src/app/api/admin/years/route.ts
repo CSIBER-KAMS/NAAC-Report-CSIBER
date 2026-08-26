@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jsonError, requireUser } from '@/lib/apiHelpers';
-import type { SessionUser } from '@/lib/auth';
+import { jsonError, requireCan } from '@/lib/apiHelpers';
 import { getDb, logAudit } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
@@ -14,19 +13,8 @@ interface YearListRow {
   created_at: string;
 }
 
-async function requireAdmin(): Promise<
-  { user: SessionUser; error: null } | { user: null; error: NextResponse }
-> {
-  const user = await requireUser();
-  if (!user) return { user: null, error: jsonError('Not authenticated', 401) };
-  if (user.role !== 'admin') {
-    return { user: null, error: jsonError('Admin access required', 403) };
-  }
-  return { user, error: null };
-}
-
-export async function GET() {
-  const { error } = await requireAdmin();
+export async function GET(request: NextRequest) {
+  const { error } = await requireCan(request, 'year:manage');
   if (error) return error;
 
   const years = getDb()
@@ -37,7 +25,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const { user, error } = await requireAdmin();
+  const { user, error } = await requireCan(request, 'year:manage');
   if (error) return error;
 
   let body: Record<string, unknown>;

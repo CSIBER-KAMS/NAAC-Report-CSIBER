@@ -25,23 +25,31 @@ document plus the NAAC data-template Excel workbook.
 
 ```bash
 npm install
-npm run seed     # creates initial users + academic year
+npm run seed     # creates the two founding accounts
 npm run dev      # http://localhost:3000
 ```
 
-Default accounts (change the passwords after first login, in Administration):
+Seeding creates exactly two accounts and nothing else — no academic year, no
+schools, no sample data:
 
-| Role  | Email                    | Password |
-|-------|--------------------------|----------|
-| Admin | kams@siberindia.edu.in   | admin123 |
-| Staff | iqac@siberindia.edu.in   | staff123 |
+| Role | Email |
+|---|---|
+| Administrator | kams@siberindia.edu.in |
+| Head of IQAC | iqac@siberindia.edu.in |
 
-Production: `npm run build && npm start`. Set `AQAR_SECRET` in the
-environment to a long random string — the simplest way is a `.env.local`
-file (gitignored, auto-loaded by Next.js) containing `AQAR_SECRET=<value>`;
-generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-Without it the app signs sessions with a well-known development secret and
-must not be used in production or shown in a public demo.
+Passwords are set by the operator via `SEED_ADMIN_PASSWORD` and
+`SEED_HEAD_PASSWORD`, or fall back to the values in `scripts/seed.ts`.
+**Change both in Administration once the system is reachable from the
+internet.** Everyone else's account is created by the Administrator and
+approved by the Head of IQAC.
+
+Production: `npm run build && npm start`. `AQAR_SECRET` is **required** — the
+application refuses to start without it, rather than silently signing sessions
+with a guessable key. Put it in `.env.local` (gitignored) or the service
+environment; generate one with
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+
+For deployment on a college server, see **[docs/RUNBOOK.md](docs/RUNBOOK.md)**.
 
 Don't run `npm run dev` and `npm run build`/`npm start` at the same time from
 the same folder — both write to the `.next` build directory, and one
@@ -55,18 +63,36 @@ Everything lives in `data/` (gitignored): `aqar.db` (SQLite),
 versions). **Back up the `data/` folder** — a nightly copy of that one folder
 is a complete backup of the system.
 
+## Roles
+
+Four levels, each with its own portal. Which one you get is decided by the
+credentials you sign in with — never by whatever session the browser was
+holding.
+
+| Role | Scope |
+|---|---|
+| **Administrator** | Everything, plus accounts, schools and academic years |
+| **Head of IQAC** | All AQAR data; approves accounts and assigns criteria; finalises the year; generates the FINAL document |
+| **Criterion Coordinator** | Only the criteria assigned to them; generates drafts; resolves change requests on their criteria |
+| **School Representative** | Contributes data and evidence for their own school only; raises change requests |
+
+New accounts are created by the Administrator and stay **pending** until the
+Head of IQAC approves them — so no single person can both create an identity
+and authorise it.
+
 ## Yearly workflow
 
-1. Admin creates the academic year (Administration).
-2. IQAC staff fill Part A, Extended Profile and Criteria 1–7; upload evidence
-   per metric; mark metrics Complete.
+1. Head of IQAC creates the academic year (Administration).
+2. Coordinators and School Representatives fill their assigned criteria;
+   the Head fills Part A and the Extended Profile; evidence is uploaded per
+   metric and metrics are marked Complete.
 3. Portal Checklist shows every metric's final value, word counts, evidence
    and open issues.
-4. Generate AQAR draft → circulate to faculty → log change requests →
-   correct data → regenerate.
-5. Admin marks the year **Final**; generate the final document; key values
-   into the NAAC portal using the checklist; export the data-template
-   workbook for upload.
+4. Generate an AQAR draft → circulate for review → log change requests →
+   correct the data → regenerate.
+5. Head of IQAC marks the year **Final** and generates the final document; key
+   the values into the NAAC portal using the checklist, and export the
+   data-template workbook for upload.
 
 ## Maintenance notes (for developers)
 

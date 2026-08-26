@@ -1,21 +1,72 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { runMigrations } from './migrations';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+/**
+ * Where all runtime state lives: the SQLite file, uploaded evidence and
+ * generated documents.
+ *
+ * Defaults to <cwd>/data, but AQAR_DATA_DIR overrides it. The override matters
+ * in production: under systemd, PM2 or Docker the working directory is not
+ * necessarily the app root, and a wrong cwd makes the app create an empty
+ * data/ elsewhere and appear to have lost everything. Setting AQAR_DATA_DIR
+ * makes the location explicit instead of implicit.
+ */
+const DATA_DIR = process.env.AQAR_DATA_DIR
+  ? path.resolve(process.env.AQAR_DATA_DIR)
+  : path.join(process.cwd(), 'data');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 export const GENERATED_DIR = path.join(DATA_DIR, 'generated');
+
+/**
+ * Basename that understands BOTH separators.
+ *
+ * path.basename running on Linux does not split a Windows path, so a legacy
+ * row containing 'D:\\...\\file.docx' would come back whole. Used when reading
+ * stored paths that may predate the relative-path migration.
+ */
+export function fileNameOf(p: string): string {
+  return p.split(/[\\/]/).pop() ?? p;
+}
 
 let db: Database.Database | null = null;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS schools (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  code TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'staff' CHECK (role IN ('admin','staff')),
+  role TEXT NOT NULL DEFAULT 'coordinator'
+    CHECK (role IN ('admin','iqac_head','coordinator','school_rep')),
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('pending','active','rejected','disabled')),
+  school_id INTEGER REFERENCES schools(id),
+  created_by INTEGER,
+  approved_by INTEGER,
+  approved_at TEXT,
+  decision_note TEXT,
+  token_valid_from TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- NOTE: indexes over columns added by a migration (users.status,
+-- users.school_id, table_rows.school_id) are created in migrations.ts, NOT
+-- here. This block runs before migrations on every start, so on a database
+-- predating those columns an index referencing them would fail outright.
+
+CREATE TABLE IF NOT EXISTS user_criteria (
+  user_id INTEGER NOT NULL,
+  criterion INTEGER NOT NULL CHECK (criterion BETWEEN 0 AND 7),
+  PRIMARY KEY (user_id, criterion)
 );
 
 CREATE TABLE IF NOT EXISTS years (
@@ -41,7 +92,9 @@ CREATE TABLE IF NOT EXISTS table_rows (
   metric_id TEXT NOT NULL,
   table_key TEXT NOT NULL DEFAULT 'main',
   row_index INTEGER NOT NULL,
-  data TEXT NOT NULL DEFAULT '{}'
+  data TEXT NOT NULL DEFAULT '{}',
+  school_id INTEGER,
+  created_by INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_table_rows ON table_rows (year_id, metric_id, table_key, row_index);
 
@@ -109,7 +162,13 @@ export function getDb(): Database.Database {
     db = new Database(path.join(DATA_DIR, 'aqar.db'));
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+    // Without this, transient lock contention surfaces as an unhandled
+    // SQLITE_BUSY (a 500) instead of a short wait.
+    db.pragma('busy_timeout = 5000');
     db.exec(SCHEMA);
+    // Brings an existing database up to the current shape. New databases get
+    // the right shape from SCHEMA above and the migrations no-op.
+    runMigrations(db);
   }
   return db;
 }

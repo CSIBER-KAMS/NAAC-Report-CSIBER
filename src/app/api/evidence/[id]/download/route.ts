@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import { getDb, UPLOADS_DIR } from '@/lib/db';
-import { jsonError, requireUser } from '@/lib/apiHelpers';
+import { jsonError, requireAuth } from '@/lib/apiHelpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,11 +30,11 @@ function contentDisposition(filename: string): string {
 
 /** GET /api/evidence/[id]/download — stream the file with its original name. */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const id = Number(params.id);
   if (!Number.isInteger(id) || id <= 0) {

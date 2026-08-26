@@ -1,5 +1,7 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getDb, getYearByLabel } from '@/lib/db';
+import { getSessionUser } from '@/lib/session';
+import { can } from '@/lib/permissions';
 import { Badge, EmptyState, PageHeader } from '@/components/ui';
 import GenerateButton from './generate-button';
 
@@ -14,11 +16,14 @@ interface GenerationRow {
   generated_by_name: string | null;
 }
 
-export default function GeneratePage({
+export default async function GeneratePage({
   params,
 }: {
   params: { year: string };
 }) {
+  const user = await getSessionUser();
+  if (!user) redirect('/login');
+
   const year = getYearByLabel(params.year);
   if (!year) notFound();
 
@@ -35,12 +40,28 @@ export default function GeneratePage({
 
   const isFinal = year.status === 'final';
 
+  // Once the year is final, every run produces the FINAL document — which is
+  // the artefact submitted to NAAC, so it is a narrower right than drafting.
+  // Downloads below stay open to everyone: circulating drafts for review is
+  // the point of the whole loop.
+  const canGenerate = can(user, isFinal ? 'generate:final' : 'generate:draft');
+
   return (
     <div>
       <PageHeader
         title="Generate AQAR"
         subtitle={`Produce the AQAR ${year.label} document (.docx) from the data currently entered.`}
-        actions={<GenerateButton year={params.year} />}
+        actions={
+          canGenerate ? (
+            <GenerateButton year={params.year} />
+          ) : (
+            <span className="max-w-xs text-right text-xs text-slate-500">
+              {isFinal
+                ? 'Only the Administrator or Head of IQAC can generate the FINAL document.'
+                : 'You do not have permission to generate documents. You can still download any version below.'}
+            </span>
+          )
+        }
       />
 
       <div className="card mb-6">
@@ -95,8 +116,17 @@ export default function GeneratePage({
         {generations.length === 0 ? (
           <div className="p-5">
             <EmptyState>
-              No documents generated yet. Use &ldquo;Generate new version&rdquo;
-              to produce the first draft.
+              {canGenerate ? (
+                <>
+                  No documents generated yet. Use &ldquo;Generate new
+                  version&rdquo; to produce the first draft.
+                </>
+              ) : (
+                <>
+                  No documents generated yet. Once a draft is produced it will
+                  appear here for you to download.
+                </>
+              )}
             </EmptyState>
           </div>
         ) : (

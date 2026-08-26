@@ -1,7 +1,10 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { allMetrics } from '@/catalog';
 import { getDb, getYearByLabel } from '@/lib/db';
+import { getSessionUser } from '@/lib/session';
+import { can } from '@/lib/permissions';
+import { criterionOf } from '@/lib/apiHelpers';
 import { Badge, EmptyState, PageHeader } from '@/components/ui';
 import {
   NewChangeRequestForm,
@@ -40,7 +43,14 @@ function truncate(text: string, max = 70): string {
   return text.slice(0, max - 1).trimEnd() + '…';
 }
 
-export default function ReviewPage({ params }: { params: { year: string } }) {
+export default async function ReviewPage({
+  params,
+}: {
+  params: { year: string };
+}) {
+  const user = await getSessionUser();
+  if (!user) redirect('/login');
+
   const year = getYearByLabel(params.year);
   if (!year) notFound();
 
@@ -61,7 +71,16 @@ export default function ReviewPage({ params }: { params: { year: string } }) {
     label: `${metric.id} — ${truncate(metric.title)}`,
   }));
 
-  const readOnly = year.status === 'final';
+  const writable = year.status !== 'final';
+
+  // Raising a request and closing one are different rights. Everyone signed in
+  // may raise; only the people who own the criterion may close.
+  const canLog = writable && can(user, 'changeRequest:create');
+  const canResolve = (cr: CrRow): boolean =>
+    writable &&
+    can(user, 'changeRequest:resolve', {
+      criterion: criterionOf(cr.metric_id),
+    });
 
   return (
     <div>
@@ -74,12 +93,14 @@ export default function ReviewPage({ params }: { params: { year: string } }) {
         <h2 className="mb-3 text-sm font-semibold text-slate-900">
           Log a new change request
         </h2>
-        {readOnly ? (
-          <p className="text-sm text-slate-500">
-            This year is marked final — change requests can no longer be logged.
-          </p>
-        ) : (
+        {canLog ? (
           <NewChangeRequestForm year={params.year} metricOptions={metricOptions} />
+        ) : (
+          <p className="text-sm text-slate-500">
+            {writable
+              ? 'You do not have permission to log change requests.'
+              : 'This year is marked final — change requests can no longer be logged.'}
+          </p>
         )}
       </div>
 
@@ -132,7 +153,16 @@ export default function ReviewPage({ params }: { params: { year: string } }) {
                       ) : null}
                     </td>
                     <td className="whitespace-nowrap px-5 py-3 text-right">
-                      <ResolveButton id={cr.id} disabled={readOnly} />
+                      <ResolveButton
+                        id={cr.id}
+                        canResolve={canResolve(cr)}
+                        deniedLabel={writable ? 'Not yours to close' : 'Year final'}
+                        deniedReason={
+                          writable
+                            ? 'Only the criterion in-charge, the Head of IQAC or an Administrator can close this request.'
+                            : 'This year is marked final — nothing can be resolved.'
+                        }
+                      />
                     </td>
                   </tr>
                 ))}

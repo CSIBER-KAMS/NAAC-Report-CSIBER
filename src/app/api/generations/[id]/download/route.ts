@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
-import { getDb } from '@/lib/db';
-import { jsonError, requireUser } from '@/lib/apiHelpers';
+import path from 'path';
+import { fileNameOf, getDb, GENERATED_DIR } from '@/lib/db';
+import { jsonError, requireAuth } from '@/lib/apiHelpers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,11 +12,11 @@ const DOCX_MIME =
 
 /** GET /api/generations/[id]/download — stream the generated .docx. */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const id = Number.parseInt(params.id, 10);
   if (!Number.isInteger(id) || id <= 0) {
@@ -34,10 +35,17 @@ export async function GET(
     | undefined;
   if (!row) return jsonError('Generation not found', 404);
 
-  if (!fs.existsSync(row.file_path)) {
+  // file_path used to be absolute and is now a bare filename; reducing it to
+  // its basename first makes this work with rows written either way.
+  const abs = path.resolve(path.join(GENERATED_DIR, fileNameOf(row.file_path)));
+  if (!abs.startsWith(path.resolve(GENERATED_DIR) + path.sep)) {
+    return jsonError('Invalid path', 400);
+  }
+
+  if (!fs.existsSync(abs)) {
     return jsonError('Generated file is missing on disk', 404);
   }
-  const buffer = fs.readFileSync(row.file_path);
+  const buffer = fs.readFileSync(abs);
   const fileName = `AQAR-${row.year_label}-v${row.version}.docx`;
 
   return new NextResponse(new Uint8Array(buffer), {

@@ -2,13 +2,51 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import fs from 'fs';
 import { getDb, logAudit, UPLOADS_DIR } from '@/lib/db';
-import { jsonError, requireUser, resolveYear, yearWritable } from '@/lib/apiHelpers';
+import {
+  criterionOf,
+  jsonError,
+  requireAuth,
+  requireCan,
+  resolveYear,
+  yearWritable,
+} from '@/lib/apiHelpers';
 import { getMetric } from '@/catalog';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+
+/**
+ * Accepted evidence types.
+ *
+ * NAAC evidence is documents, spreadsheets, presentations and photographs;
+ * nothing here needs to accept executables or HTML. Note the real memory
+ * protection is nginx's client_max_body_size, because the size check below
+ * runs only after formData() has already buffered the body — see the runbook.
+ */
+const ALLOWED_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'csv',
+  'ppt',
+  'pptx',
+  'txt',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'zip',
+]);
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
+}
 
 interface EvidenceDbRow {
   id: number;
@@ -54,8 +92,8 @@ function sanitizeComponent(input: string): string {
 
 /** GET /api/evidence?year=&metric= — list evidence rows for a year (metric optional). */
 export async function GET(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
+  const { error } = await requireAuth(request);
+  if (error) return error;
 
   const { searchParams } = new URL(request.url);
   const year = resolveYear(searchParams.get('year'));
@@ -82,9 +120,6 @@ export async function GET(request: NextRequest) {
 
 /** POST /api/evidence — multipart form: year, metric, slot, file. */
 export async function POST(request: NextRequest) {
-  const user = await requireUser();
-  if (!user) return jsonError('Not authenticated', 401);
-
   let form: FormData;
   try {
     form = await request.formData();
@@ -108,6 +143,13 @@ export async function POST(request: NextRequest) {
     return jsonError('A file is required', 400);
   }
 
+  // Authorized against the criterion this metric belongs to, so a coordinator
+  // or representative can only attach evidence within their own scope.
+  const { user, error } = await requireCan(request, 'evidence:upload', {
+    criterion: criterionOf(metricId),
+  });
+  if (error) return error;
+
   const year = resolveYear(yearLabel);
   if (!year) return jsonError('Year not found', 404);
   if (!yearWritable(year)) {
@@ -124,6 +166,18 @@ export async function POST(request: NextRequest) {
   if (file.size === 0) return jsonError('File is empty', 400);
   if (file.size > MAX_FILE_SIZE) {
     return jsonError('File exceeds the 50 MB size limit', 413);
+  }
+
+  const ext = extensionOf(file.name || '');
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    return jsonError(
+      `Files of type '${ext || 'unknown'}' are not accepted. Allowed: ${Array.from(
+        ALLOWED_EXTENSIONS
+      )
+        .sort()
+        .join(', ')}.`,
+      400
+    );
   }
 
   const origName = sanitizeComponent(file.name || 'file');
