@@ -70,7 +70,60 @@ export interface EvidenceCount {
 }
 
 /**
- * Validate one metric: word limits, required evidence, override mismatches.
+ * Flag blank required table cells. Skips tables with no rows yet — an
+ * untouched table is already reported as "no data" elsewhere; this check is
+ * only for rows someone has started filling in. Caps individual messages
+ * per table so one badly-filled table doesn't drown out everything else.
+ */
+function validateTableRequiredColumns(
+  yearId: number,
+  metric: Metric,
+  issues: ValidationIssue[]
+): void {
+  for (const table of metric.tables ?? []) {
+    const requiredCols = table.columns.filter((c) => c.required);
+    if (requiredCols.length === 0) continue;
+
+    const rows = getTableRows(yearId, metric.id, table.key);
+    if (rows.length === 0) continue;
+
+    const label = table.title ? `'${table.title}'` : 'data';
+    let gaps = 0;
+    const MAX_ISSUES = 3;
+
+    rows.forEach((row, idx) => {
+      const rowLabel =
+        table.mode === 'fixedRows' && table.fixedRows?.[idx]
+          ? table.fixedRows[idx]
+          : `Row ${idx + 1}`;
+      for (const col of requiredCols) {
+        const v = row[col.key];
+        if (v === undefined || v === null || String(v).trim() === '') {
+          gaps++;
+          if (gaps <= MAX_ISSUES) {
+            issues.push({
+              metricId: metric.id,
+              severity: 'warning',
+              message: `${rowLabel} of the ${label} table is missing '${col.label}'.`,
+            });
+          }
+        }
+      }
+    });
+
+    if (gaps > MAX_ISSUES) {
+      issues.push({
+        metricId: metric.id,
+        severity: 'warning',
+        message: `${gaps - MAX_ISSUES} more required-field gap(s) in the ${label} table not shown.`,
+      });
+    }
+  }
+}
+
+/**
+ * Validate one metric: word limits, required evidence, override mismatches,
+ * required table cells.
  * evidenceCounts maps slot_key -> number of uploaded files for this metric.
  */
 export function validateMetric(
@@ -124,6 +177,8 @@ export function validateMetric(
       });
     }
   }
+
+  validateTableRequiredColumns(yearId, metric, issues);
 
   return issues;
 }
