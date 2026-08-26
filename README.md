@@ -37,7 +37,16 @@ Default accounts (change the passwords after first login, in Administration):
 | Staff | iqac@siberindia.edu.in   | staff123 |
 
 Production: `npm run build && npm start`. Set `AQAR_SECRET` in the
-environment to a long random string.
+environment to a long random string — the simplest way is a `.env.local`
+file (gitignored, auto-loaded by Next.js) containing `AQAR_SECRET=<value>`;
+generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+Without it the app signs sessions with a well-known development secret and
+must not be used in production or shown in a public demo.
+
+Don't run `npm run dev` and `npm run build`/`npm start` at the same time from
+the same folder — both write to the `.next` build directory, and one
+overwriting the other's files mid-request can produce a 500 error on some
+pages. Stop the dev server before building for production (or vice versa).
 
 ## Storage
 
