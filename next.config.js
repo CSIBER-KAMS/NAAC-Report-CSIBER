@@ -6,11 +6,28 @@ const { PHASE_PRODUCTION_SERVER } = require('next/constants');
  * HSTS is deliberately NOT set here — it belongs on the TLS-terminating proxy
  * (nginx), so it stays aligned with certificate renewal and is not duplicated.
  *
- * The CSP allows 'unsafe-inline' for scripts because Next 14's inline
- * bootstrap requires it; a nonce-based policy needs middleware nonce plumbing
- * and is deferred. There are no third-party scripts in this application, and
- * frame-ancestors 'none' plus nosniff cover the practical risks.
+ * The CSP allows 'unsafe-inline' for scripts because Next 14's inline bootstrap
+ * requires it; a nonce-based policy needs middleware nonce plumbing and is
+ * deferred. There are no third-party scripts here, and frame-ancestors 'none'
+ * plus nosniff cover the practical risks.
+ *
+ * 'unsafe-eval' is added in DEVELOPMENT ONLY. Next's dev server compiles
+ * modules through eval() for hot reloading; without it React never hydrates and
+ * every interactive control silently does nothing — a sign-in button that does
+ * not even issue a request. Production builds contain no eval, so the shipped
+ * policy stays strict.
  */
+const isDev = process.env.NODE_ENV !== 'production';
+
+const scriptSrc = isDev
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
+// Dev also needs a websocket back to the dev server for hot reload.
+const connectSrc = isDev
+  ? "connect-src 'self' ws: wss:"
+  : "connect-src 'self'";
+
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
@@ -23,11 +40,11 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      scriptSrc,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self'",
+      connectSrc,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
