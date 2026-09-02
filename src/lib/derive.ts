@@ -104,6 +104,7 @@ function validateTableRequiredColumns(
             issues.push({
               metricId: metric.id,
               severity: 'warning',
+              code: 'required_cell',
               message: `${rowLabel} of the ${label} table is missing '${col.label}'.`,
             });
           }
@@ -115,6 +116,7 @@ function validateTableRequiredColumns(
       issues.push({
         metricId: metric.id,
         severity: 'warning',
+        code: 'required_cell',
         message: `${gaps - MAX_ISSUES} more required-field gap(s) in the ${label} table not shown.`,
       });
     }
@@ -140,6 +142,7 @@ export function validateMetric(
       issues.push({
         metricId: metric.id,
         severity: 'error',
+        code: 'word_limit',
         message: `Write-up${w.label ? ` "${w.label}"` : ''} exceeds the ${w.wordLimit}-word limit (currently ${countWords(text)} words).`,
       });
     }
@@ -149,6 +152,7 @@ export function validateMetric(
     issues.push({
       metricId: metric.id,
       severity: 'warning',
+      code: 'no_option',
       message: 'No option has been selected yet.',
     });
   }
@@ -163,6 +167,7 @@ export function validateMetric(
       issues.push({
         metricId: metric.id,
         severity: 'warning',
+        code: 'override_mismatch',
         message: `Manual value (${payload.headlineOverride}) differs from the value computed from the data table (${derived}).${payload.headlineOverrideReason ? '' : ' Add a reason for the override — DVV will question unexplained mismatches.'}`,
       });
     }
@@ -173,6 +178,7 @@ export function validateMetric(
       issues.push({
         metricId: metric.id,
         severity: 'warning',
+        code: 'missing_evidence',
         message: `Required evidence "${slot.label}" has not been uploaded.`,
       });
     }

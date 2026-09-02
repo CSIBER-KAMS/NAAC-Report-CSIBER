@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { canApproveAccounts, getSessionUser } from '@/lib/session';
 import { can } from '@/lib/permissions';
 import { getDb } from '@/lib/db';
+import { computeReadiness } from '@/lib/readiness';
 import AdminClient, {
   type AdminSchool,
   type AdminUser,
@@ -71,9 +72,21 @@ export default async function AdminPage() {
     )
     .all() as AdminUser[];
 
-  const years = db
-    .prepare('SELECT id, label, status, created_at FROM years ORDER BY label DESC')
-    .all() as AdminYear[];
+  // Readiness rides along with each open year so "Mark final" can warn before
+  // it locks the data. Only draft years are validated: finalising is the only
+  // decision the verdict informs, and it is the one thing a final year cannot
+  // be asked to do. This is the same per-metric walk the dashboard does.
+  const years = (
+    db
+      .prepare(
+        'SELECT id, label, status, created_at FROM years ORDER BY label DESC'
+      )
+      .all() as Omit<AdminYear, 'ready' | 'blockedReason'>[]
+  ).map((y) => {
+    if (y.status === 'final') return { ...y, ready: true, blockedReason: '' };
+    const { ready, blockedReason } = computeReadiness(y.id);
+    return { ...y, ready, blockedReason };
+  }) as AdminYear[];
 
   const schools = db
     .prepare(

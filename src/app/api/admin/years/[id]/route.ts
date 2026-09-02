@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jsonError, requireCan } from '@/lib/apiHelpers';
 import { getDb, logAudit } from '@/lib/db';
+import { computeReadiness } from '@/lib/readiness';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +54,29 @@ export async function PATCH(
     return NextResponse.json({ year });
   }
 
+  // Finalising an unready year is a one-way squeeze: the data locks read-only,
+  // so its blockers can no longer be corrected, and the FINAL document cannot
+  // be generated until they are — the only way out is to reopen the year. The
+  // admin may still choose it, but never by accident, and never from a tab
+  // whose readiness figures have gone stale.
+  const acknowledged = body.acknowledgeNotReady === true;
+  let overrodeReadiness: string | null = null;
+  if (status === 'final') {
+    const readiness = computeReadiness(id);
+    if (!readiness.ready) {
+      if (!acknowledged) {
+        return jsonError(
+          `${year.label} is not ready to be finalised: ${readiness.blockedReason}. Finalising locks the data read-only, so these could no longer be corrected. Confirm again to finalise anyway.`,
+          409
+        );
+      }
+      // Going ahead regardless is a legitimate call, but it is one someone may
+      // have to answer for later — record what was overridden, not just that
+      // the year was finalised.
+      overrodeReadiness = readiness.blockedReason;
+    }
+  }
+
   getDb().prepare('UPDATE years SET status = ? WHERE id = ?').run(status, id);
 
   logAudit(
@@ -60,7 +84,9 @@ export async function PATCH(
     id,
     null,
     status === 'final' ? 'year_finalized' : 'year_reopened',
-    { label: year.label }
+    overrodeReadiness
+      ? { label: year.label, overrodeReadiness }
+      : { label: year.label }
   );
 
   return NextResponse.json({ year: getYearById(id) });

@@ -164,8 +164,20 @@ export interface MetricPayload {
   status?: MetricStatus;
 }
 
+/**
+ * Why an issue was raised. Stable identifiers, so the readiness gate can
+ * group and count warnings without parsing the human-readable message.
+ */
+export type IssueCode =
+  | 'word_limit'
+  | 'no_option'
+  | 'override_mismatch'
+  | 'missing_evidence'
+  | 'required_cell';
+
 export interface ValidationIssue {
   metricId: string;
   severity: 'error' | 'warning';
+  code: IssueCode;
   message: string;
 }
