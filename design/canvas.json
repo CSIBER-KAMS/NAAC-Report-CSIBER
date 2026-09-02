@@ -1,0 +1,31 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 1300, "title": "Readiness gate — blocked" },
+    { "file": "GateCleared.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 900, "title": "Readiness gate — cleared" },
+    { "file": "VersionDiff.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 1080, "title": "Version diff", "is_interactive": true }
+  ],
+  "annotations": [
+    {
+      "id": "note-gate",
+      "x": 0,
+      "y": -190,
+      "w": 420,
+      "text": "READINESS GATE\n\nGeneration today ignores validateMetric() entirely. Here it reads it: errors block the FINAL document, drafts stay open so incomplete work can still be circulated for review.\n\nThe prose \"review loop\" card is gone — the loop is the screen now."
+    },
+    {
+      "id": "note-cleared",
+      "x": 1560,
+      "y": -190,
+      "w": 420,
+      "text": "CLEARED STATE\n\nThe FINAL button unlocks only with a stated acknowledgement of the remaining warnings. \"Since v7\" is the bridge into the diff view.\n\nOpen question: should FINAL also require zero warnings, or is acknowledgement enough?"
+    },
+    {
+      "id": "note-diff",
+      "x": 3120,
+      "y": -190,
+      "w": 420,
+      "text": "VERSION DIFF (interactive — click v5 / v6 / v7)\n\nAnswers the question the version table cannot: what moved since I last read this. \"Errors introduced\" catches regressions between drafts.\n\nNeeds a headline-value snapshot stored per generation."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}
