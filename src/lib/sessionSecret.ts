@@ -46,17 +46,39 @@ export interface SessionCookieOptions {
 }
 
 /**
+ * Is the deployment actually served over TLS?
+ *
+ * A `Secure` cookie is silently DISCARDED by browsers on a plain-http origin,
+ * which presents as a login that returns 200 and then bounces straight back to
+ * /login — the cookie was never stored. So `secure` must track the scheme the
+ * app is really reached on, not merely NODE_ENV.
+ *
+ * APP_ORIGIN is the deployment's declared public origin, so its scheme is the
+ * authoritative answer. When APP_ORIGIN is unset we fall back to the old
+ * behaviour (secure in production), which keeps TLS deployments that never set
+ * it from silently downgrading.
+ *
+ * This is what allows the campus LAN deployment — http://<host>:3000, no
+ * reverse proxy, no certificate — to hold a session at all.
+ */
+function originIsSecure(): boolean {
+  const origin = process.env.APP_ORIGIN;
+  if (origin) return origin.startsWith('https://');
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
  * Cookie attributes. These must be IDENTICAL when setting and when clearing —
  * browsers only delete a cookie when the attributes match the one they hold.
  *
- * `secure` is on in production only, so local http development still works.
+ * `secure` follows the APP_ORIGIN scheme — see originIsSecure().
  */
 export function sessionCookieOptions(maxAge: number): SessionCookieOptions {
   return {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    secure: process.env.NODE_ENV === 'production',
+    secure: originIsSecure(),
     maxAge,
   };
 }
