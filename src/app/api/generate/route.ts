@@ -4,6 +4,7 @@ import path from 'path';
 import { getDb, logAudit, GENERATED_DIR } from '@/lib/db';
 import { jsonError, requireAuth, resolveYear } from '@/lib/apiHelpers';
 import { can } from '@/lib/permissions';
+import { computeReadiness } from '@/lib/readiness';
 import { generateAqar } from '@/lib/docgen';
 
 export const runtime = 'nodejs';
@@ -30,9 +31,10 @@ export async function POST(request: NextRequest) {
   } catch {
     return jsonError('Invalid JSON body', 400);
   }
-  const { year: yearLabel, label } = (body ?? {}) as {
+  const { year: yearLabel, label, acknowledgeWarnings } = (body ?? {}) as {
     year?: unknown;
     label?: unknown;
+    acknowledgeWarnings?: unknown;
   };
 
   if (typeof yearLabel !== 'string') return jsonError('year is required', 400);
@@ -53,6 +55,26 @@ export async function POST(request: NextRequest) {
         : 'Only the Administrator or the Head of IQAC may generate the FINAL AQAR document.',
       403
     );
+  }
+
+  // The readiness gate. A DRAFT is deliberately never blocked — circulating an
+  // incomplete document is how the review loop works. The FINAL document is
+  // what goes to NAAC, so it may not be produced over unresolved errors, and
+  // the remaining warnings must be acknowledged rather than silently shipped.
+  if (!draft) {
+    const readiness = computeReadiness(year.id);
+    if (!readiness.ready) {
+      return jsonError(
+        `The FINAL AQAR cannot be generated: ${readiness.blockedReason}. Clear these on the Generate AQAR page first.`,
+        409
+      );
+    }
+    if (readiness.warningCount > 0 && acknowledgeWarnings !== true) {
+      return jsonError(
+        `${readiness.warningCount} warning${readiness.warningCount === 1 ? '' : 's'} must be acknowledged before the FINAL AQAR is generated.`,
+        409
+      );
+    }
   }
 
   const db = getDb();

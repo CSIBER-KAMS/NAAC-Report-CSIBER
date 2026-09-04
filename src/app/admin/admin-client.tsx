@@ -49,6 +49,16 @@ export interface AdminYear {
   label: string;
   status: 'draft' | 'final';
   created_at: string;
+  /**
+   * Readiness of the year's data, from computeReadiness — the same verdict the
+   * Generate page shows. Finalising a year that is NOT ready is a trap: the
+   * data locks read-only, so the blockers can no longer be fixed, and the
+   * FINAL document cannot be generated until they are. Always true for a year
+   * that is already final, where the question no longer applies.
+   */
+  ready: boolean;
+  /** Why it is not ready, as one phrase. Empty when ready. */
+  blockedReason: string;
 }
 
 export interface AdminSchool {
@@ -1256,15 +1266,26 @@ function YearsSection({
   }
 
   function setYearStatus(year: AdminYear, status: 'final' | 'draft') {
+    // Finalising an unready year cannot be undone from inside the year: the
+    // data goes read-only, so the blockers can no longer be fixed, and the
+    // FINAL document stays refused until they are. Say that plainly before
+    // asking, rather than letting it be discovered afterwards.
     const question =
-      status === 'final'
-        ? `Mark ${year.label} as FINAL? All data becomes read-only and generated documents lose the draft stamp.`
-        : `Reopen ${year.label} for editing?`;
+      status !== 'final'
+        ? `Reopen ${year.label} for editing?`
+        : year.ready
+          ? `Mark ${year.label} as FINAL? All data becomes read-only and generated documents lose the draft stamp.`
+          : `Mark ${year.label} as FINAL?\n\nThis year is NOT ready: ${year.blockedReason}.\n\nAll data becomes read-only, so these can no longer be corrected, and the FINAL document cannot be generated until they are — the only way back is to reopen the year.\n\nFinalise anyway?`;
     if (!window.confirm(question)) return;
     void run(() =>
       mutate(`/api/admin/years/${year.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          ...(status === 'final' && !year.ready
+            ? { acknowledgeNotReady: true }
+            : {}),
+        }),
       })
     );
   }
@@ -1281,6 +1302,7 @@ function YearsSection({
               <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                 <Th>Year</Th>
                 <Th>Status</Th>
+                <Th>Readiness</Th>
                 <Th className="text-right" />
               </tr>
             </thead>
@@ -1295,6 +1317,17 @@ function YearsSection({
                       <Badge tone="green">Final</Badge>
                     ) : (
                       <Badge tone="slate">Draft</Badge>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    {y.status === 'final' ? (
+                      <span className="text-slate-400">—</span>
+                    ) : y.ready ? (
+                      <Badge tone="green">Ready to finalise</Badge>
+                    ) : (
+                      <span className="text-xs text-amber-800">
+                        Not ready — {y.blockedReason}
+                      </span>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-5 py-3 text-right">
@@ -1323,7 +1356,7 @@ function YearsSection({
               {years.length === 0 && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={4}
                     className="px-5 py-6 text-center text-sm text-slate-500"
                   >
                     No academic years yet.
